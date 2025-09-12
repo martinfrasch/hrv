@@ -1,0 +1,129 @@
+version: '3.8'
+
+services:
+  hrv-pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: generic-hrv-pipeline:latest
+    container_name: hrv-pipeline
+    
+    # Environment variables
+    environment:
+      - PYTHONPATH=/app
+      - HRV_CACHE_DIR=/app/cache
+      - HRV_LOG_LEVEL=INFO
+      - HRV_N_WORKERS=4
+      - HRV_INPUT_TYPE=auto  # auto-detect input type
+    
+    # Volume mappings
+    volumes:
+      # Input data directory - can contain RR intervals, HR, or ECG files
+      - ./data:/app/data:ro
+      # Output directory  
+      - ./output:/app/output:rw
+      # Cache directory for performance
+      - ./cache:/app/cache:rw
+      # Logs directory
+      - ./logs:/app/logs:rw
+      # Configuration directory
+      - ./config:/app/config:ro
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Default command - can be overridden
+    command: >
+      --data-path /app/data
+      --output-path /app/output/hrv_results
+      --config /app/config/hrv_config.yaml
+      --n-workers 4
+      --input-type auto
+
+  # Example: ECG-specific processing
+  hrv-ecg:
+    extends: hrv-pipeline
+    container_name: hrv-pipeline-ecg
+    environment:
+      - PYTHONPATH=/app
+      - HRV_CACHE_DIR=/app/cache
+      - HRV_LOG_LEVEL=INFO
+      - HRV_N_WORKERS=4
+      - HRV_INPUT_TYPE=ecg
+    command: >
+      --data-path /app/data
+      --output-path /app/output/hrv_ecg_results
+      --input-type ecg
+      --sampling-rate 1000
+      --n-workers 4
+    profiles:
+      - ecg  # Only start with: docker-compose --profile ecg up
+
+  # Example: Heart rate specific processing
+  hrv-heartrate:
+    extends: hrv-pipeline
+    container_name: hrv-pipeline-hr
+    environment:
+      - PYTHONPATH=/app
+      - HRV_CACHE_DIR=/app/cache
+      - HRV_LOG_LEVEL=INFO
+      - HRV_N_WORKERS=4
+      - HRV_INPUT_TYPE=heart_rate
+    command: >
+      --data-path /app/data
+      --output-path /app/output/hrv_heartrate_results
+      --input-type heart_rate
+      --n-workers 4
+    profiles:
+      - heartrate  # Only start with: docker-compose --profile heartrate up
+
+  # Example: RR intervals specific processing
+  hrv-rri:
+    extends: hrv-pipeline
+    container_name: hrv-pipeline-rri
+    environment:
+      - PYTHONPATH=/app
+      - HRV_CACHE_DIR=/app/cache
+      - HRV_LOG_LEVEL=INFO
+      - HRV_N_WORKERS=4
+      - HRV_INPUT_TYPE=rr_intervals
+    command: >
+      --data-path /app/data
+      --output-path /app/output/hrv_rri_results
+      --input-type rr_intervals
+      --n-workers 4
+    profiles:
+      - rri  # Only start with: docker-compose --profile rri up
+
+  # Optional: Web interface service (for future development)
+  hrv-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: generic-hrv-pipeline:latest
+    container_name: hrv-web
+    ports:
+      - "8080:8080"
+    environment:
+      - PYTHONPATH=/app
+      - HRV_WEB_MODE=1
+    volumes:
+      - ./output:/app/output:ro
+      - ./logs:/app/logs:rw
+    command: python -m src.web_interface
+    depends_on:
+      - hrv-pipeline
+    profiles:
+      - web  # Only start with: docker-compose --profile web up

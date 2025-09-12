@@ -1,0 +1,39 @@
+# Core scientific computing
+numpy>=1.21.0,<2.0.0
+pandas>=1.3.0,<2.0.0
+scipy>=1.7.0,<2.0.0
+
+# NeuroKit2 and signal processing
+neurokit2>=0.2.7
+matplotlib>=3.3.0
+seaborn>=0.11.0
+
+# Machine learning (for HMM and complexity analysis)
+scikit-learn>=1.0.0
+hmmlearn>=0.2.5
+
+# Parallel processing and caching
+joblib>=1.0.0
+
+# Configuration management
+pyyaml>=5.4.0
+
+# Data formats
+pyarrow>=5.0.0  # For Parquet support
+tables>=3.6.0   # For HDF5 support
+
+# Complexity analysis
+antropy>=0.1.4
+
+# Optional: Advanced entropy measures
+nolds>=0.5.2
+
+# Development and testing (optional, can be removed for production)
+pytest>=6.0.0
+pytest-cov>=2.12.0
+
+# Logging and monitoring
+tqdm>=4.60.0
+
+# Memory profiling (optional)
+memory-profiler>=0.58.0

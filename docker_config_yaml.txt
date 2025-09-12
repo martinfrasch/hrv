@@ -1,0 +1,77 @@
+# Generic HRV Pipeline Configuration
+# Supports RR intervals, heart rate, and raw ECG signals
+
+# Input data parameters
+input_type: "auto"  # "rr_intervals", "heart_rate", "ecg", "auto"
+sampling_rate: 1000  # For ECG signals (Hz)
+time_unit: "ms"  # "ms", "s" for RR intervals
+
+# Data validation parameters
+min_heart_rate: 30.0
+max_heart_rate: 200.0
+min_rr_interval: 300.0  # ms
+max_rr_interval: 2000.0  # ms
+
+# Processing parameters
+artifact_threshold: 0.2
+window_length: null  # seconds, null = process entire signal
+window_overlap: 0.5
+min_signal_length: 120  # minimum seconds for reliable HRV
+
+# HRV computation domains
+hrv_time_domain: true
+hrv_frequency_domain: true
+hrv_nonlinear_domain: true
+hrv_higher_order: true  # Temporal fluctuation analysis
+
+# Performance settings (optimized for container)
+n_workers: null  # Auto-detect based on container CPU limits
+chunk_size: 8000  # Smaller chunks for better memory management in containers
+enable_caching: true
+cache_dir: "/app/cache"
+
+# Output settings
+save_intermediate: false
+output_format: "parquet"  # Most efficient for large datasets
+include_metadata: true
+
+# Advanced processing options
+interpolation_method: "linear"  # for missing data
+detrending_method: "loess"  # for trend removal
+outlier_removal: true
+outlier_method: "iqr"  # "iqr", "zscore", "isolation_forest"
+
+# Container-specific settings
+log_level: "INFO"
+memory_limit_mb: 4096  # Soft memory limit guidance
+max_files_per_batch: 100  # Prevent overwhelming the container
+
+# Quality control
+min_samples_per_file: 100
+max_artifact_ratio: 0.3  # Skip files with >30% artifacts
+
+# Frequency domain settings (for heart rate/RR intervals)
+psd_method: "welch"
+freq_bands:
+  vlf: [0.003, 0.04]   # Very Low Frequency
+  lf: [0.04, 0.15]     # Low Frequency  
+  hf: [0.15, 0.4]      # High Frequency
+  vhf: [0.4, 0.5]      # Very High Frequency
+
+# Nonlinear domain settings
+poincare_plot: true
+detrended_fluctuation: true
+sample_entropy_params:
+  dimension: 2
+  tolerance: 0.2
+  delay: 1
+
+# ECG-specific settings (only used when input_type is "ecg")
+ecg_cleaning_method: "neurokit"  # "neurokit", "biosppy", "pantompkins"
+r_peak_method: "neurokit"  # "neurokit", "pantompkins", "hamilton", "christov"
+artifact_correction: true
+
+# Resource monitoring
+monitor_memory: true
+monitor_cpu: true
+progress_bars: true
