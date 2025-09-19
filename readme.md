@@ -546,3 +546,10 @@ If you use this generic HRV pipeline in your research, please cite:
 ✅ **Easy to Use** - Auto-detection means minimal configuration  
 ✅ **Well Documented** - Comprehensive examples and troubleshooting  
 ✅ **Open Source** - MIT licensed, community-driven development
+
+
+---
+
+<img width="191" height="20" alt="image" src="https://github.com/user-attachments/assets/ad6be6fe-688a-4205-aa68-5ce9a5e3d81c" />
+
+ DOI: 10.5281/zenodo.17162794
