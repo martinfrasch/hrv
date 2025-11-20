@@ -176,17 +176,19 @@ class InputTypeDetector:
                 # Convert to milliseconds for internal processing
                 signal_col = signal_col * 1000
             valid_mask = (signal_col >= config.min_rr_interval) & (signal_col <= config.max_rr_interval)
-            data.iloc[:, 1] = signal_col  # Update with converted values
+            # Update with converted values using .loc to avoid SettingWithCopyWarning
+            data = data.copy()
+            data.loc[:, data.columns[1]] = signal_col
         else:  # ECG
             # For ECG, we'll validate after peak detection
             valid_mask = pd.Series([True] * len(signal_col))
         
-        # Apply validation mask
+        # Apply validation mask and create explicit copy to avoid SettingWithCopyWarning
         data = data[valid_mask].copy()
-        
+
         if len(data) < 100:  # Minimum samples required
             raise ValueError(f"Insufficient valid data points after cleaning: {len(data)}")
-        
+
         return data
 
 class GenericDataLoader:
@@ -205,11 +207,15 @@ class GenericDataLoader:
             # Try different separators
             try:
                 data = pd.read_csv(file_path, sep='\t')
-            except:
+            except Exception as e:
                 try:
                     data = pd.read_csv(file_path, sep=' ')
-                except:
-                    data = pd.read_csv(file_path, sep=',')
+                except Exception as e2:
+                    try:
+                        data = pd.read_csv(file_path, sep=',')
+                    except Exception as e3:
+                        raise IOError(f"Failed to parse {file_path} with tab, space, or comma separators. "
+                                    f"Last error: {e3}")
         elif file_path.suffix.lower() in ['.xlsx', '.xls']:
             data = pd.read_excel(file_path)
         elif file_path.suffix.lower() == '.parquet':
@@ -333,18 +339,18 @@ class SignalProcessor:
     
     def _remove_outliers(self, data: np.ndarray) -> np.ndarray:
         """Remove outliers using specified method"""
-        
+
         if self.config.outlier_method == "iqr":
             q1, q3 = np.percentile(data, [25, 75])
             iqr = q3 - q1
             lower_bound = q1 - 1.5 * iqr
             upper_bound = q3 + 1.5 * iqr
             mask = (data >= lower_bound) & (data <= upper_bound)
-            
+
         elif self.config.outlier_method == "zscore":
             z_scores = np.abs((data - np.mean(data)) / np.std(data))
             mask = z_scores <= 3
-            
+
         elif self.config.outlier_method == "isolation_forest":
             try:
                 from sklearn.ensemble import IsolationForest
@@ -353,11 +359,16 @@ class SignalProcessor:
                 mask = outlier_pred == 1
             except ImportError:
                 self.logger.warning("sklearn not available, falling back to IQR method")
-                return self._remove_outliers(data)  # Fallback to IQR
+                # Directly implement IQR fallback to avoid infinite recursion
+                q1, q3 = np.percentile(data, [25, 75])
+                iqr = q3 - q1
+                lower_bound = q1 - 1.5 * iqr
+                upper_bound = q3 + 1.5 * iqr
+                mask = (data >= lower_bound) & (data <= upper_bound)
         else:
             # No outlier removal
             return data
-        
+
         return data[mask]
     
     def _interpolate_missing(self, data: np.ndarray) -> np.ndarray:
@@ -446,26 +457,29 @@ class OptimizedHRVComputer:
     def _compute_time_domain(self, peaks: np.ndarray) -> Dict:
         """Compute time domain HRV metrics"""
         try:
-            time_hrv = nk.hrv_time(peaks, sampling_rate=self.config.sampling_rate)
+            # Time domain metrics don't require sampling rate for RR intervals
+            time_hrv = nk.hrv_time(peaks, sampling_rate=1000)
             return {f"time_{k}": v for k, v in time_hrv.to_dict('records')[0].items()}
         except Exception as e:
             self.logger.warning(f"Time domain computation failed: {e}")
             return {}
-    
+
     def _compute_frequency_domain(self, peaks: np.ndarray) -> Dict:
         """Compute frequency domain HRV metrics"""
         try:
-            freq_hrv = nk.hrv_frequency(peaks, sampling_rate=self.config.sampling_rate,
+            # Use standard 1000 Hz for RR interval resampling in frequency analysis
+            freq_hrv = nk.hrv_frequency(peaks, sampling_rate=1000,
                                       method='welch')
             return {f"freq_{k}": v for k, v in freq_hrv.to_dict('records')[0].items()}
         except Exception as e:
             self.logger.warning(f"Frequency domain computation failed: {e}")
             return {}
-    
+
     def _compute_nonlinear_domain(self, peaks: np.ndarray) -> Dict:
         """Compute nonlinear domain HRV metrics"""
         try:
-            nonlinear_hrv = nk.hrv_nonlinear(peaks, sampling_rate=self.config.sampling_rate)
+            # Use standard 1000 Hz for consistency
+            nonlinear_hrv = nk.hrv_nonlinear(peaks, sampling_rate=1000)
             return {f"nonlinear_{k}": v for k, v in nonlinear_hrv.to_dict('records')[0].items()}
         except Exception as e:
             self.logger.warning(f"Nonlinear domain computation failed: {e}")
@@ -525,18 +539,19 @@ class HRVResultsCache:
         self.logger = logging.getLogger(__name__)
     
     def _get_file_hash(self, file_path: str) -> str:
-        """Generate hash of file content"""
+        """Generate hash of file content using SHA256 for better collision resistance"""
         try:
             with open(file_path, 'rb') as f:
                 content = f.read()
-                return hashlib.md5(content).hexdigest()
-        except Exception:
+                return hashlib.sha256(content).hexdigest()
+        except Exception as e:
+            self.logger.warning(f"Failed to hash file {file_path}: {e}")
             return ""
     
     def _get_config_hash(self, config: HRVConfig) -> str:
-        """Generate hash of configuration"""
+        """Generate hash of configuration using SHA256"""
         config_str = str(sorted(config.__dict__.items()))
-        return hashlib.md5(config_str.encode()).hexdigest()
+        return hashlib.sha256(config_str.encode()).hexdigest()
     
     def get_cache_key(self, file_path: str, config: HRVConfig) -> str:
         """Generate unique cache key"""
@@ -582,7 +597,7 @@ class GenericHRVPipeline:
         
         # Set up parallel processing
         if self.config.n_workers is None:
-            self.config.n_workers = min(mp.cpu_count() - 1, 8)
+            self.config.n_workers = max(1, min(mp.cpu_count() - 1, 8))
     
     def _setup_logging(self) -> logging.Logger:
         """Configure logging"""
@@ -697,16 +712,23 @@ class GenericHRVPipeline:
             )
     
     def process_dataset_parallel(self, files: List[str]) -> List[ProcessingResult]:
-        """Process multiple files in parallel"""
+        """Process multiple files in parallel using thread-based parallelism
+
+        Note: Using ThreadPoolExecutor instead of ProcessPoolExecutor because:
+        1. Avoids pickling issues with class methods and complex objects
+        2. NeuroKit2 and NumPy operations release GIL, allowing true parallelism
+        3. Faster startup time and lower overhead
+        """
         self.logger.info(f"Processing {len(files)} files using {self.config.n_workers} workers")
-        
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.config.n_workers) as executor:
+
+        # Use ThreadPoolExecutor for I/O-bound and NumPy operations (which release GIL)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.config.n_workers) as executor:
             # Submit all jobs
             future_to_file = {
-                executor.submit(self.process_single_file, file_path): file_path 
+                executor.submit(self.process_single_file, file_path): file_path
                 for file_path in files
             }
-            
+
             # Collect results
             results = []
             for future in concurrent.futures.as_completed(future_to_file):
@@ -721,7 +743,7 @@ class GenericHRVPipeline:
                         status=ProcessingStatus.FAILED,
                         error=str(e)
                     ))
-        
+
         return results
     
     def save_results(self, results: List[ProcessingResult], output_path: str):

@@ -95,37 +95,64 @@ echo "Cache directory: $CACHE_DIR"
 echo "Workers: $N_WORKERS"
 echo ""
 
-# Validate directories exist
+# Validate directories exist and create them
 for dir in "$DATA_DIR" "$(dirname "$OUTPUT_DIR")" "$(dirname "$CACHE_DIR")"; do
     if [[ ! -d "$dir" ]]; then
         echo -e "${YELLOW}Creating directory: $dir${NC}"
-        mkdir -p "$dir"
+        if ! mkdir -p "$dir" 2>/dev/null; then
+            echo -e "${RED}Error: Failed to create directory $dir (permission denied?)${NC}"
+            exit 1
+        fi
     fi
 done
 
 # Create required subdirectories in data directory
-mkdir -p "$DATA_DIR/heartrate" "$DATA_DIR/sleep_labels"
-mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
+if ! mkdir -p "$DATA_DIR/heartrate" "$DATA_DIR/sleep_labels" 2>/dev/null; then
+    echo -e "${RED}Error: Failed to create data subdirectories${NC}"
+    exit 1
+fi
+
+if ! mkdir -p "$OUTPUT_DIR" "$CACHE_DIR" 2>/dev/null; then
+    echo -e "${RED}Error: Failed to create output/cache directories${NC}"
+    exit 1
+fi
 
 # Check if data directory has files
 if [[ ! -d "$DATA_DIR/heartrate" ]] || [[ -z "$(ls -A "$DATA_DIR/heartrate" 2>/dev/null)" ]]; then
     echo -e "${YELLOW}Warning: No heartrate data found in $DATA_DIR/heartrate${NC}"
 fi
 
+# Get absolute paths (fallback if realpath not available)
+if command -v realpath >/dev/null 2>&1; then
+    ABS_DATA_DIR=$(realpath "$DATA_DIR")
+    ABS_OUTPUT_DIR=$(realpath "$OUTPUT_DIR")
+    ABS_CACHE_DIR=$(realpath "$CACHE_DIR")
+else
+    # Fallback: use readlink -f or cd method
+    ABS_DATA_DIR=$(cd "$DATA_DIR" && pwd)
+    ABS_OUTPUT_DIR=$(cd "$OUTPUT_DIR" && pwd)
+    ABS_CACHE_DIR=$(cd "$CACHE_DIR" && pwd)
+fi
+
 # Build docker run command
 DOCKER_ARGS=(
     --rm
     --name "$CONTAINER_NAME"
-    -v "$(realpath "$DATA_DIR"):/app/data:ro"
-    -v "$(realpath "$OUTPUT_DIR"):/app/output:rw"
-    -v "$(realpath "$CACHE_DIR"):/app/cache:rw"
+    -v "${ABS_DATA_DIR}:/app/data:ro"
+    -v "${ABS_OUTPUT_DIR}:/app/output:rw"
+    -v "${ABS_CACHE_DIR}:/app/cache:rw"
     -e "HRV_N_WORKERS=$N_WORKERS"
     -e "PYTHONPATH=/app"
 )
 
 # Add config file if it exists
 if [[ -f "$CONFIG_FILE" ]]; then
-    DOCKER_ARGS+=(-v "$(realpath "$CONFIG_FILE"):/app/config/hrv_config.yaml:ro")
+    if command -v realpath >/dev/null 2>&1; then
+        ABS_CONFIG_FILE=$(realpath "$CONFIG_FILE")
+    else
+        ABS_CONFIG_FILE=$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")
+    fi
+    DOCKER_ARGS+=(-v "${ABS_CONFIG_FILE}:/app/config/hrv_config.yaml:ro")
     echo "Using config file: $CONFIG_FILE"
 fi
 
@@ -146,10 +173,11 @@ else
 fi
 
 echo -e "${YELLOW}Running container...${NC}"
-echo "Command: docker run ${DOCKER_ARGS[*]} $IMAGE_NAME $IMAGE_ARGS"
+echo "Command: docker run ${DOCKER_ARGS[*]} \"$IMAGE_NAME\" $IMAGE_ARGS"
 echo ""
 
 # Run the container
+# shellcheck disable=SC2086
 if docker run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" $IMAGE_ARGS; then
     echo ""
     echo -e "${GREEN}✓ Pipeline completed successfully${NC}"

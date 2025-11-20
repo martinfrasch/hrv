@@ -66,7 +66,7 @@ if [[ ! -f "Dockerfile" ]]; then
 fi
 
 # Check if required files exist
-required_files=("requirements.txt" "src/hrv_pipeline.py")
+required_files=("requirements_txt.txt" "optimized_hrv_pipeline.py")
 for file in "${required_files[@]}"; do
     if [[ ! -f "$file" ]]; then
         echo -e "${RED}Error: Required file $file not found${NC}"
@@ -76,10 +76,11 @@ done
 
 # Build the Docker image
 echo -e "${YELLOW}Starting Docker build...${NC}"
-if docker build $BUILD_ARGS -t "$FULL_IMAGE_NAME" .; then
+# shellcheck disable=SC2086
+if docker build $BUILD_ARGS -t "$FULL_IMAGE_NAME" . 2>&1 | tee build.log; then
     echo -e "${GREEN}✓ Successfully built $FULL_IMAGE_NAME${NC}"
 else
-    echo -e "${RED}✗ Build failed${NC}"
+    echo -e "${RED}✗ Build failed (see build.log for details)${NC}"
     exit 1
 fi
 
@@ -89,18 +90,22 @@ echo -e "${YELLOW}Image Information:${NC}"
 docker images "$IMAGE_NAME" | head -2
 
 # Optional: Run basic tests
-if [[ -f "scripts/test.sh" ]]; then
+if [[ -f "test_script.sh" ]]; then
     echo ""
-    read -p "Run basic tests? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        bash scripts/test.sh "$FULL_IMAGE_NAME"
+    if [[ -z "${CI:-}" ]]; then
+        read -p "Run basic tests? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            bash test_script.sh "$FULL_IMAGE_NAME"
+        fi
+    else
+        echo "Skipping interactive test prompt in CI environment"
     fi
 fi
 
 echo ""
 echo -e "${GREEN}Build completed successfully!${NC}"
 echo -e "${YELLOW}Next steps:${NC}"
-echo "1. Run the container: bash scripts/run.sh"
+echo "1. Run the container: bash run_script.sh"
 echo "2. Or use docker-compose: docker-compose up"
-echo "3. For help: docker run --rm $FULL_IMAGE_NAME --help"
+echo "3. For help: docker run --rm \"$FULL_IMAGE_NAME\" --help"
