@@ -1,0 +1,25 @@
+# Development and testing dependencies
+-r requirements.txt
+
+# Testing
+pytest>=6.0.0
+pytest-cov>=2.12.0
+pytest-xdist>=2.5.0  # Parallel testing
+
+# Code quality
+black>=22.0.0
+flake8>=4.0.0
+mypy>=0.950
+pylint>=2.13.0
+isort>=5.10.0
+
+# Memory profiling
+memory-profiler>=0.58.0
+
+# Documentation
+sphinx>=4.5.0
+sphinx-rtd-theme>=1.0.0
+
+# Type stubs
+pandas-stubs>=1.5.0
+types-PyYAML>=6.0.0
